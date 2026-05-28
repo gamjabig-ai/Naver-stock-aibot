@@ -2,7 +2,7 @@ name: Run AI Stock Bot
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 0,4,14 * * *'
   workflow_dispatch:
 
 jobs:
@@ -24,4 +24,4 @@ jobs:
       - name: Run bot
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          TELEGR
+          TEL
