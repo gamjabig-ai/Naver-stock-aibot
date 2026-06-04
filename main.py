@@ -9,106 +9,61 @@ client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-HEADERS = {
-"User-Agent": "Mozilla/5.0"
-}
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 TARGETS = [
-{"name": "삼성전자", "code": "005930"},
-{"name": "SK스퀘어", "code": "402340"},
+    {"name": "삼성전자", "code": "005930"},
+    {"name": "SK스퀘어", "code": "402340"},
 ]
 
-BAD_WORDS = [
-"쒯", "빳", "뒷", "렐", "쩔", "냇",
-"뷁", "뺏", "룀", "돔", "源", "浚",
-"媛", "燮", "珉", "갤쌕", "뤠", "짤렐"
-]
+BAD_WORDS = ["쒯", "빳", "뒷", "렐", "쩔", "냇", "뷁", "뺏", "룀", "돔", "源", "浚", "媛", "燮", "珉"]
 
 def send_telegram(msg):
-url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-
-```
-requests.post(
-    url,
-    data={
-        "chat_id": CHAT_ID,
-        "text": msg[:3900]
-    }
-)
-```
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    requests.post(url, data={"chat_id": CHAT_ID, "text": msg[:3900]})
 
 def is_clean_title(title):
-if not title:
-return False
-
-```
-if any(word in title for word in BAD_WORDS):
-    return False
-
-hangul_count = sum(
-    1 for c in title
-    if "가" <= c <= "힣"
-)
-
-if len(title) > 0:
-    if hangul_count / len(title) < 0.4:
+    if not title:
         return False
-
-return True
-```
+    if any(word in title for word in BAD_WORDS):
+        return False
+    hangul_count = sum(1 for c in title if "가" <= c <= "힣")
+    if len(title) > 0 and hangul_count / len(title) < 0.4:
+        return False
+    return True
 
 def get_naver_posts(code):
-posts = []
+    posts = []
 
-```
-for page in range(1, 6):
-    url = f"https://finance.naver.com/item/board.naver?code={code}&page={page}"
+    for page in range(1, 6):
+        url = f"https://finance.naver.com/item/board.naver?code={code}&page={page}"
+        res = requests.get(url, headers=HEADERS, timeout=15)
+        res.encoding = "euc-kr"
+        soup = BeautifulSoup(res.text, "html.parser")
 
-    res = requests.get(
-        url,
-        headers=HEADERS,
-        timeout=15
-    )
+        for row in soup.select("table.type2 tr"):
+            title_tag = row.select_one("td.title a")
+            if not title_tag:
+                continue
 
-    res.encoding = "euc-kr"
+            title = title_tag.get_text(" ", strip=True)
 
-    soup = BeautifulSoup(
-        res.text,
-        "html.parser"
-    )
+            if is_clean_title(title):
+                posts.append(title)
 
-    for row in soup.select("table.type2 tr"):
-        title_tag = row.select_one("td.title a")
+        time.sleep(0.5)
 
-        if not title_tag:
-            continue
-
-        title = title_tag.get_text(
-            " ",
-            strip=True
-        )
-
-        if is_clean_title(title):
-            posts.append(title)
-
-    time.sleep(0.5)
-
-return posts[:100]
-```
+    return posts[:100]
 
 def analyze_target(name, posts):
-text_data = "\n".join(posts)
+    text_data = "\n".join(posts)
 
-```
-prompt = f"""
-```
-
+    prompt = f"""
 아래는 네이버 종목토론방 게시글 제목입니다.
 
 종목명: {name}
 
-중요 규칙
-
+중요 규칙:
 1. 글자가 깨진 게시글 제외
 2. 의미 없는 감탄문 제외
 3. 단순 매수/매도 외침 제외
@@ -120,84 +75,53 @@ prompt = f"""
 9. 게시글 의미만 요약
 10. 투자자가 바로 이해할 수 있게 작성
 
-출력 형식
+출력 형식:
 
 📌 {name}
 
 1. 긍정/부정 비율
-   긍정 XX% / 부정 XX%
+긍정 XX% / 부정 XX%
 
 2. 상승 이유 TOP3
-
-* 이유
-* 이유
-* 이유
+- 이유
+- 이유
+- 이유
 
 3. 하락 이유 TOP3
-
-* 이유
-* 이유
-* 이유
+- 이유
+- 이유
+- 이유
 
 4. 종합 판단
-   2줄 이내 요약
+2줄 이내 요약
 
 게시글:
-
 {text_data}
 """
 
-```
-response = client.chat.completions.create(
-    model="gpt-4.1-mini",
-    messages=[
-        {
-            "role": "user",
-            "content": prompt
-        }
-    ]
-)
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
 
-return response.choices[0].message.content
-```
+    return response.choices[0].message.content
 
-send_telegram(
-"🚀 삼성전자 / SK스퀘어 종토방 심리 분석을 시작합니다."
-)
+send_telegram("🚀 삼성전자 / SK스퀘어 종토방 심리 분석을 시작합니다.")
 
 for target in TARGETS:
+    try:
+        posts = get_naver_posts(target["code"])
 
-```
-try:
+        if not posts:
+            send_telegram(f"📌 {target['name']}\n\n분석 가능한 게시글이 없습니다.")
+            continue
 
-    posts = get_naver_posts(
-        target["code"]
-    )
+        result = analyze_target(target["name"], posts)
+        send_telegram(result)
+        time.sleep(3)
 
-    if not posts:
-        send_telegram(
-            f"📌 {target['name']}\n\n분석 가능한 게시글이 없습니다."
-        )
-        continue
+    except Exception as e:
+        send_telegram(f"⚠️ {target['name']} 분석 오류\n{str(e)}")
+        time.sleep(2)
 
-    result = analyze_target(
-        target["name"],
-        posts
-    )
-
-    send_telegram(result)
-
-    time.sleep(3)
-
-except Exception as e:
-
-    send_telegram(
-        f"⚠️ {target['name']} 분석 오류\n{str(e)}"
-    )
-
-    time.sleep(2)
-```
-
-send_telegram(
-"✅ 삼성전자 / SK스퀘어 분석이 완료되었습니다."
-)
+send_telegram("✅ 삼성전자 / SK스퀘어 분석이 완료되었습니다.")
