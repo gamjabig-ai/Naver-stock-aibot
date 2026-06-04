@@ -12,11 +12,8 @@ CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 TARGETS = [
-    {"name": "TIGER 미국우주항공", "type": "naver", "code": "0183J0"},
-    {"name": "마이크론", "type": "yahoo", "ticker": "MU"},
-    {"name": "샌디스크", "type": "yahoo", "ticker": "SNDK"},
-    {"name": "레드와이어", "type": "yahoo", "ticker": "RDW"},
-    {"name": "SOXL", "type": "yahoo", "ticker": "SOXL"},
+    {"name": "삼성전자", "code": "005930"},
+    {"name": "SK스퀘어", "code": "402340"},
 ]
 
 def send_telegram(msg):
@@ -25,7 +22,7 @@ def send_telegram(msg):
 
 def get_naver_posts(code):
     posts = []
-    for page in range(1, 4):
+    for page in range(1, 5):
         url = f"https://finance.naver.com/item/board.naver?code={code}&page={page}"
         res = requests.get(url, headers=HEADERS, timeout=15)
         html = res.content.decode("cp949", errors="ignore")
@@ -34,56 +31,51 @@ def get_naver_posts(code):
         for row in soup.select("table.type2 tr"):
             title_tag = row.select_one("td.title a")
             if title_tag:
-                posts.append(title_tag.get_text(strip=True))
+                title = title_tag.get_text(strip=True)
+                if title:
+                    posts.append(title)
 
         time.sleep(0.5)
 
-    return posts[:50]
+    return posts[:80]
 
-def get_yahoo_news(ticker):
-    url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
-    res = requests.get(url, headers=HEADERS, timeout=15)
-    soup = BeautifulSoup(res.content, "xml")
-
-    titles = []
-    for item in soup.find_all("item")[:20]:
-        title = item.find("title")
-        if title:
-            titles.append(title.get_text(strip=True))
-
-    return titles
-
-def analyze_target(target):
-    name = target["name"]
-
-    if target["type"] == "naver":
-        data = get_naver_posts(target["code"])
-        source = "네이버 종목토론방 게시글 제목"
-    else:
-        data = get_yahoo_news(target["ticker"])
-        source = "Yahoo Finance 최근 뉴스 제목"
-
-    if not data:
-        return f"📌 {name}\n\n수집된 데이터가 없습니다."
-
-    text_data = "\n".join(data)
+def analyze_target(name, posts):
+    text_data = "\n".join(posts)
 
     prompt = f"""
-아래 자료를 바탕으로 {name}을 한국어로 분석해줘.
+아래는 네이버 종목토론방 게시글 제목입니다.
+종목명: {name}
 
-자료 출처: {source}
+중요 조건:
+- 단순히 "오른다", "간다", "상승", "하락", "망했다", "끝났다"처럼 이유 없는 주장성 글은 분석에서 제외해줘.
+- 상승 이유나 하락 이유가 들어간 글만 의미 있게 반영해줘.
+- 긍정/부정 비율은 반드시 퍼센트로만 표시해줘. 예: 긍정 60% / 부정 40%
+- 상승 이유가 있는 실제 게시글 제목은 직접 보여줘.
+- 하락 이유가 있는 실제 게시글 제목도 직접 보여줘.
+- 깨진 문자, 의미 없는 글, 욕설성 글, 단순 감정글은 제외해줘.
+- 너무 길게 쓰지 말고 투자자가 바로 볼 수 있게 정리해줘.
 
-형식:
-1. 현재 투자심리
-2. 상승 요인
-3. 하락 요인
-4. 핵심 키워드
-5. 단기 관전 포인트
-6. 종합 판단
+출력 형식:
 
-너무 길지 않게, 투자자가 바로 볼 수 있게 정리해줘.
+📌 {name}
 
-자료:
+1. 긍정/부정 비율
+긍정 __% / 부정 __%
+
+2. 상승 이유가 있는 게시글
+- 게시글 제목 1
+- 게시글 제목 2
+- 게시글 제목 3
+
+3. 하락 이유가 있는 게시글
+- 게시글 제목 1
+- 게시글 제목 2
+- 게시글 제목 3
+
+4. 요약 판단
+- 한두 문장으로만 요약
+
+게시글:
 {text_data}
 """
 
@@ -92,17 +84,18 @@ def analyze_target(target):
         messages=[{"role": "user", "content": prompt}]
     )
 
-    return f"📌 {name}\n\n{response.choices[0].message.content}"
+    return response.choices[0].message.content
 
-send_telegram("🚀 5개 종목 AI 분석을 시작합니다.")
+send_telegram("🚀 삼성전자 / SK스퀘어 종토방 심리 분석을 시작합니다.")
 
 for target in TARGETS:
     try:
-        result = analyze_target(target)
+        posts = get_naver_posts(target["code"])
+        result = analyze_target(target["name"], posts)
         send_telegram(result)
         time.sleep(3)
     except Exception as e:
         send_telegram(f"⚠️ {target['name']} 분석 오류\n{str(e)}")
         time.sleep(2)
 
-send_telegram("✅ 5개 종목 AI 분석이 완료되었습니다.")
+send_telegram("✅ 삼성전자 / SK스퀘어 분석이 완료되었습니다.")
